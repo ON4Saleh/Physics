@@ -1,0 +1,195 @@
+#include <SFML/Graphics.hpp>
+#include <Box2D/Box2D.h>
+#include <vector>
+#include <iostream>
+
+const float G = 1.0;            
+float SUN_MASS = 10000.0f;      
+const float SUN_RADIUS = 50.0f; 
+const float MAX_TRAIL_SIZE = 300; 
+
+class Planet {
+public:
+    sf::CircleShape shape;          
+    b2Body* body;                   
+    std::vector<sf::Vertex> trail;  
+    sf::CircleShape orbit;          
+    float mass;                     
+
+    Planet(float radius, float x, float y, b2World* world) {
+        shape.setRadius(radius);
+        shape.setFillColor(sf::Color::Green);
+        shape.setOrigin(radius, radius);  
+        shape.setPosition(x, y);
+
+        mass = radius * 10;  
+
+        b2BodyDef bodyDef;
+        bodyDef.type = b2_dynamicBody;
+        bodyDef.position.Set(x, y);
+
+        body = world->CreateBody(&bodyDef);
+
+        b2CircleShape circleShape;
+        circleShape.m_radius = radius;
+
+        b2FixtureDef fixtureDef;
+        fixtureDef.shape = &circleShape;
+        fixtureDef.density = 10.0f;  
+        fixtureDef.friction = 0.3f;
+
+        body->CreateFixture(&fixtureDef);
+
+        orbit.setRadius(std::sqrt(std::pow(x - 400, 2) + std::pow(y - 300, 2)));
+        orbit.setFillColor(sf::Color::Transparent);
+        orbit.setOutlineColor(sf::Color(255, 255, 255, 50));  
+        orbit.setOutlineThickness(1);
+        orbit.setOrigin(orbit.getRadius(), orbit.getRadius());
+        orbit.setPosition(400, 300);
+    }
+
+    void update() {
+        shape.setPosition(body->GetPosition().x, body->GetPosition().y);
+        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
+        if (trail.size() > MAX_TRAIL_SIZE) {
+            trail.erase(trail.begin());
+        }
+    }
+
+    bool isCloseToSun(const sf::Vector2f& sunPosition, float threshold) const {
+        float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
+            std::pow(shape.getPosition().y - sunPosition.y, 2));
+        return distance < threshold;
+    }
+
+    void drawOrbit(sf::RenderWindow& window) const {
+        window.draw(orbit);
+    }
+};
+
+b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
+    b2Vec2 direction = position - sunPosition;
+    float distance = direction.Length();
+
+    if (distance == 0) {
+        return b2Vec2(0, 0);
+    }
+
+    direction.Normalize();
+    float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
+
+    b2Vec2 perpendicular(-direction.y, direction.x); 
+    perpendicular.Normalize();
+    perpendicular *= velocityMagnitude;  
+
+    return perpendicular;
+}
+
+void applyGravity(Planet& planet, const sf::Vector2f& sunPosition) {
+    b2Vec2 sunPos(sunPosition.x, sunPosition.y);
+    b2Vec2 direction = sunPos - planet.body->GetPosition();
+    float distance = direction.Length();
+
+    if (distance > SUN_RADIUS) {
+        direction.Normalize();
+        float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
+        direction *= forceMagnitude;
+        planet.body->ApplyForceToCenter(direction, true); 
+    }
+
+    if (planet.isCloseToSun(sunPosition, SUN_RADIUS + 10)) {
+        SUN_MASS += planet.mass; 
+        planet.body->SetTransform(b2Vec2(400, 300), 0);
+        std::cout << "Collision detected! Sun's new mass: " << SUN_MASS << std::endl;
+        std::cout << "Planet's mass: " << planet.mass << std::endl;
+    }
+}
+
+bool checkCollision(const Planet& p1, const Planet& p2) {
+    float distance = std::sqrt(std::pow(p1.shape.getPosition().x - p2.shape.getPosition().x, 2) +
+        std::pow(p1.shape.getPosition().y - p2.shape.getPosition().y, 2));
+    return distance < (p1.shape.getRadius() + p2.shape.getRadius());
+}
+
+void mergePlanets(Planet& p1, Planet& p2) {
+    p1.mass += p2.mass; 
+    std::cout << "Merged Planet's new mass: " << p1.mass << std::endl;
+}
+
+std::vector<std::shared_ptr<Planet>> planets;
+
+int main() {
+    sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
+
+    b2Vec2 gravity(0.0f, 0.0f);
+    b2World world(gravity);
+
+    sf::CircleShape sun(SUN_RADIUS);
+    sun.setFillColor(sf::Color::Yellow);
+    sun.setOrigin(SUN_RADIUS, SUN_RADIUS);
+    sun.setPosition(400, 300);
+
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed) {
+                window.close();
+            }
+            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+                float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
+
+                if (distanceToSun > SUN_RADIUS) {
+                    auto newPlanet = std::make_shared<Planet>(10, mousePos.x, mousePos.y, &world);
+                    b2Vec2 velocity = calculateInitialVelocity(newPlanet->body->GetPosition(), b2Vec2(400, 300));
+                    newPlanet->body->SetLinearVelocity(velocity);
+                    planets.push_back(newPlanet);
+                }
+            }
+        }
+
+        world.Step(1.0f / 60.0f, 6, 2);
+
+        window.clear();
+        window.draw(sun);
+
+        for (auto it = planets.begin(); it != planets.end(); ) {
+            applyGravity(**it, sf::Vector2f(400, 300));
+            (*it)->update();
+
+            bool removed = false;
+            for (auto it2 = it + 1; it2 != planets.end();) {
+                if (checkCollision(**it, **it2)) {
+                    mergePlanets(**it, **it2); 
+                    it2 = planets.erase(it2);  
+                    removed = true;
+                }
+                else {
+                    ++it2;
+                }
+            }
+
+            if (removed) {
+                std::cout << "Remaining Planet's new mass: " << (*it)->mass << std::endl;
+            }
+
+            if ((*it)->isCloseToSun(sf::Vector2f(400, 300), SUN_RADIUS + 10)) {
+                SUN_MASS += (*it)->mass;
+                world.DestroyBody((*it)->body);
+                std::cout << "Planet collided with the Sun!" << std::endl;
+                std::cout << "New Sun Mass: " << SUN_MASS << std::endl;
+                it = planets.erase(it);  
+            }
+            else {
+                (*it)->drawOrbit(window);
+                window.draw((*it)->shape);
+                window.draw(&(*it)->trail[0], (*it)->trail.size(), sf::LinesStrip);
+                ++it;
+            }
+        }
+
+        window.display();
+    }
+
+    return 0;
+}
