@@ -2,26 +2,26 @@
 #include <Box2D/Box2D.h>
 #include <vector>
 #include <cmath>
+#include <iostream>
 
-b2World* world;
+// تعريف الثوابت
+const float G = 0.0001f;   // ثابت الجذب العام
+const float SUN_MASS = 10000.0f;  // كتلة الشمس
+const float SUN_RADIUS = 50.0f;   // نصف قطر الشمس
 
-const float G = 0.0001f;
-const float SUN_MASS = 10000.0f;
-const float PLANET_MASS = 10.0f;
-const float SUN_RADIUS = 50.0f;
-
+// تعريف الكوكب
 class Planet {
 public:
-    sf::CircleShape shape;
-    b2Body* body;
-    std::vector<sf::Vertex> trail;
+    sf::CircleShape shape;  // شكل الكوكب
+    b2Body* body;          // جسم Box2D
+    std::vector<sf::Vertex> trail;  // مسار الكوكب
 
-    Planet(float radius , float x, float y, b2World* world) {
-        radius = 10.0f;
-        shape.setRadius(radius);  
+    Planet(float radius, float x, float y, b2World* world) {
+        shape.setRadius(radius);
         shape.setFillColor(sf::Color::Green);
         shape.setPosition(x, y);
 
+        // إعداد جسم Box2D
         b2BodyDef bodyDef;
         bodyDef.type = b2_dynamicBody;
         bodyDef.position.Set(x, y);
@@ -33,7 +33,7 @@ public:
 
         b2FixtureDef fixtureDef;
         fixtureDef.shape = &circleShape;
-        fixtureDef.density = PLANET_MASS;
+        fixtureDef.density = 10.0f;  // كثافة الكوكب
         fixtureDef.friction = 0.3f;
 
         body->CreateFixture(&fixtureDef);
@@ -43,7 +43,7 @@ public:
         shape.setPosition(body->GetPosition().x, body->GetPosition().y);
         trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
         if (trail.size() > 200) {
-            trail.erase(trail.begin());
+            trail.erase(trail.begin());  // تقليم المسار
         }
     }
 
@@ -54,6 +54,7 @@ public:
     }
 };
 
+// حساب السرعة الأولية للكوكب بحيث تكون عمودية على القوة الجاذبية
 b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
     b2Vec2 direction = position - sunPosition;
     float distance = direction.Length();
@@ -65,26 +66,30 @@ b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
     direction.Normalize();
     float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
 
-    b2Vec2 perpendicular(-direction.y, direction.x);
+    // السرعة عمودية على القوة الجاذبية
+    b2Vec2 perpendicular(-direction.y, direction.x);  // تدوير 90 درجة
     perpendicular.Normalize();
-    perpendicular *= velocityMagnitude;
+    perpendicular *= velocityMagnitude;  // ضرب المتجه في السرعة المطلوبة
 
     return perpendicular;
 }
 
+// تطبيق الجاذبية بين الشمس والكواكب
 void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);
+    b2Vec2 sunPos(400, 300);  // موقع الشمس
     b2Vec2 direction = sunPos - planet.body->GetPosition();
     float distance = direction.Length();
 
+    // التأكد من أن الكوكب ليس في الشمس
     if (distance > SUN_RADIUS) {
         direction.Normalize();
         float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
         b2Vec2 force = direction;
-        force *= forceMagnitude;
+        force *= forceMagnitude;  // ضرب المتجه في القوة
         planet.body->ApplyForceToCenter(force, true);
     }
 
+    // تطبيق الجاذبية بين الكواكب
     for (const auto& otherPlanet : planets) {
         if (&otherPlanet == &planet) continue;
 
@@ -94,7 +99,7 @@ void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
             otherDirection.Normalize();
             float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
             b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;
+            forceToPlanet *= otherForceMagnitude;  // ضرب المتجه في القوة الجاذبية
             planet.body->ApplyForceToCenter(forceToPlanet, true);
         }
     }
@@ -106,7 +111,7 @@ int main() {
     sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
 
     b2Vec2 gravity(0.0f, 0.0f);
-    world = new b2World(gravity);
+    b2World world(gravity);
 
     sf::CircleShape sun(SUN_RADIUS);
     sun.setFillColor(sf::Color::Yellow);
@@ -121,32 +126,35 @@ int main() {
             if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
                 sf::Vector2i mousePos = sf::Mouse::getPosition(window);
                 float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
-                
+
+                // التأكد من أن الكوكب بعيد عن الشمس
                 if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(20, mousePos.x, mousePos.y, world);  
+                    Planet newPlanet(10, mousePos.x, mousePos.y, &world);  // إنشاء كوكب جديد
                     b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);
+                    newPlanet.body->SetLinearVelocity(velocity);  // تعيين السرعة الأولية
                     planets.push_back(newPlanet);
                 }
             }
         }
 
-        world->Step(1.0f / 60.0f, 6, 2);
+        // تحديث العالم
+        world.Step(1.0f / 60.0f, 6, 2);
 
         window.clear();
         window.draw(sun);
 
+        // تحديث الكواكب وتطبيق الجاذبية
         for (auto it = planets.begin(); it != planets.end();) {
             applyGravity(*it, planets);
             it->update();
 
             if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world->DestroyBody(it->body); 
-                it = planets.erase(it); 
+                world.DestroyBody(it->body);
+                it = planets.erase(it);  // حذف الكوكب إذا اقترب من الشمس
             }
             else {
                 window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);
+                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);  // رسم المسار
                 ++it;
             }
         }
@@ -154,642 +162,5 @@ int main() {
         window.display();
     }
 
-    delete world;
-    return 0;
-}
-#include <SFML/Graphics.hpp>
-#include <Box2D/Box2D.h>
-#include <vector>
-#include <cmath>
-
-b2World* world;
-
-const float G = 0.0001f;
-const float SUN_MASS = 10000.0f;
-const float PLANET_MASS = 10.0f;
-const float SUN_RADIUS = 50.0f;
-
-class Planet {
-public:
-    sf::CircleShape shape;
-    b2Body* body;
-    std::vector<sf::Vertex> trail;
-
-    Planet(float radius , float x, float y, b2World* world) {
-        radius = 10.0f;
-        shape.setRadius(radius);  
-        shape.setFillColor(sf::Color::Green);
-        shape.setPosition(x, y);
-
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(x, y);
-
-        body = world->CreateBody(&bodyDef);
-
-        b2CircleShape circleShape;
-        circleShape.m_radius = radius;
-
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &circleShape;
-        fixtureDef.density = PLANET_MASS;
-        fixtureDef.friction = 0.3f;
-
-        body->CreateFixture(&fixtureDef);
-    }
-
-    void update() {
-        shape.setPosition(body->GetPosition().x, body->GetPosition().y);
-        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
-        if (trail.size() > 200) {
-            trail.erase(trail.begin());
-        }
-    }
-
-    bool isCloseToSun(sf::Vector2f sunPosition, float threshold) {
-        float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
-            std::pow(shape.getPosition().y - sunPosition.y, 2));
-        return distance < threshold;
-    }
-};
-
-b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
-    b2Vec2 direction = position - sunPosition;
-    float distance = direction.Length();
-
-    if (distance == 0) {
-        return b2Vec2(0, 0);
-    }
-
-    direction.Normalize();
-    float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
-
-    b2Vec2 perpendicular(-direction.y, direction.x);
-    perpendicular.Normalize();
-    perpendicular *= velocityMagnitude;
-
-    return perpendicular;
-}
-
-void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);
-    b2Vec2 direction = sunPos - planet.body->GetPosition();
-    float distance = direction.Length();
-
-    if (distance > SUN_RADIUS) {
-        direction.Normalize();
-        float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
-        b2Vec2 force = direction;
-        force *= forceMagnitude;
-        planet.body->ApplyForceToCenter(force, true);
-    }
-
-    for (const auto& otherPlanet : planets) {
-        if (&otherPlanet == &planet) continue;
-
-        b2Vec2 otherDirection = otherPlanet.body->GetPosition() - planet.body->GetPosition();
-        float otherDistance = otherDirection.Length();
-        if (otherDistance > 0) {
-            otherDirection.Normalize();
-            float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
-            b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;
-            planet.body->ApplyForceToCenter(forceToPlanet, true);
-        }
-    }
-}
-
-std::vector<Planet> planets;
-
-int main() {
-    sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
-
-    b2Vec2 gravity(0.0f, 0.0f);
-    world = new b2World(gravity);
-
-    sf::CircleShape sun(SUN_RADIUS);
-    sun.setFillColor(sf::Color::Yellow);
-    sun.setPosition(400 - SUN_RADIUS, 300 - SUN_RADIUS);
-
-    while (window.isOpen()) {
-        sf::Event event;
-        while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed) {
-                window.close();
-            }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
-                float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
-                
-                if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(20, mousePos.x, mousePos.y, world);  
-                    b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);
-                    planets.push_back(newPlanet);
-                }
-            }
-        }
-
-        world->Step(1.0f / 60.0f, 6, 2);
-
-        window.clear();
-        window.draw(sun);
-
-        for (auto it = planets.begin(); it != planets.end();) {
-            applyGravity(*it, planets);
-            it->update();
-
-            if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world->DestroyBody(it->body); 
-                it = planets.erase(it); 
-            }
-            else {
-                window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);
-                ++it;
-            }
-        }
-
-        window.display();
-    }
-
-    delete world;
-    return 0;
-}
-#include <SFML/Graphics.hpp>
-#include <Box2D/Box2D.h>
-#include <vector>
-#include <cmath>
-
-b2World* world;
-
-const float G = 0.0001f;
-const float SUN_MASS = 10000.0f;
-const float PLANET_MASS = 10.0f;
-const float SUN_RADIUS = 50.0f;
-
-class Planet {
-public:
-    sf::CircleShape shape;
-    b2Body* body;
-    std::vector<sf::Vertex> trail;
-
-    Planet(float radius , float x, float y, b2World* world) {
-        radius = 10.0f;
-        shape.setRadius(radius);  
-        shape.setFillColor(sf::Color::Green);
-        shape.setPosition(x, y);
-
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(x, y);
-
-        body = world->CreateBody(&bodyDef);
-
-        b2CircleShape circleShape;
-        circleShape.m_radius = radius;
-
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &circleShape;
-        fixtureDef.density = PLANET_MASS;
-        fixtureDef.friction = 0.3f;
-
-        body->CreateFixture(&fixtureDef);
-    }
-
-    void update() {
-        shape.setPosition(body->GetPosition().x, body->GetPosition().y);
-        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
-        if (trail.size() > 200) {
-            trail.erase(trail.begin());
-        }
-    }
-
-    bool isCloseToSun(sf::Vector2f sunPosition, float threshold) {
-        float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
-            std::pow(shape.getPosition().y - sunPosition.y, 2));
-        return distance < threshold;
-    }
-};
-
-b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
-    b2Vec2 direction = position - sunPosition;
-    float distance = direction.Length();
-
-    if (distance == 0) {
-        return b2Vec2(0, 0);
-    }
-
-    direction.Normalize();
-    float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
-
-    b2Vec2 perpendicular(-direction.y, direction.x);
-    perpendicular.Normalize();
-    perpendicular *= velocityMagnitude;
-
-    return perpendicular;
-}
-
-void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);
-    b2Vec2 direction = sunPos - planet.body->GetPosition();
-    float distance = direction.Length();
-
-    if (distance > SUN_RADIUS) {
-        direction.Normalize();
-        float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
-        b2Vec2 force = direction;
-        force *= forceMagnitude;
-        planet.body->ApplyForceToCenter(force, true);
-    }
-
-    for (const auto& otherPlanet : planets) {
-        if (&otherPlanet == &planet) continue;
-
-        b2Vec2 otherDirection = otherPlanet.body->GetPosition() - planet.body->GetPosition();
-        float otherDistance = otherDirection.Length();
-        if (otherDistance > 0) {
-            otherDirection.Normalize();
-            float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
-            b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;
-            planet.body->ApplyForceToCenter(forceToPlanet, true);
-        }
-    }
-}
-
-std::vector<Planet> planets;
-
-int main() {
-    sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
-
-    b2Vec2 gravity(0.0f, 0.0f);
-    world = new b2World(gravity);
-
-    sf::CircleShape sun(SUN_RADIUS);
-    sun.setFillColor(sf::Color::Yellow);
-    sun.setPosition(400 - SUN_RADIUS, 300 - SUN_RADIUS);
-
-    while (window.isOpen()) {
-        sf::Event event;
-        while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed) {
-                window.close();
-            }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
-                float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
-                
-                if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(20, mousePos.x, mousePos.y, world);  
-                    b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);
-                    planets.push_back(newPlanet);
-                }
-            }
-        }
-
-        world->Step(1.0f / 60.0f, 6, 2);
-
-        window.clear();
-        window.draw(sun);
-
-        for (auto it = planets.begin(); it != planets.end();) {
-            applyGravity(*it, planets);
-            it->update();
-
-            if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world->DestroyBody(it->body); 
-                it = planets.erase(it); 
-            }
-            else {
-                window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);
-                ++it;
-            }
-        }
-
-        window.display();
-    }
-
-    delete world;
-    return 0;
-}
-#include <SFML/Graphics.hpp>
-#include <Box2D/Box2D.h>
-#include <vector>
-#include <cmath>
-
-b2World* world;
-
-const float G = 0.0001f;
-const float SUN_MASS = 10000.0f;
-const float PLANET_MASS = 10.0f;
-const float SUN_RADIUS = 50.0f;
-
-class Planet {
-public:
-    sf::CircleShape shape;
-    b2Body* body;
-    std::vector<sf::Vertex> trail;
-
-    Planet(float radius , float x, float y, b2World* world) {
-        radius = 10.0f;
-        shape.setRadius(radius);  
-        shape.setFillColor(sf::Color::Green);
-        shape.setPosition(x, y);
-
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(x, y);
-
-        body = world->CreateBody(&bodyDef);
-
-        b2CircleShape circleShape;
-        circleShape.m_radius = radius;
-
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &circleShape;
-        fixtureDef.density = PLANET_MASS;
-        fixtureDef.friction = 0.3f;
-
-        body->CreateFixture(&fixtureDef);
-    }
-
-    void update() {
-        shape.setPosition(body->GetPosition().x, body->GetPosition().y);
-        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
-        if (trail.size() > 200) {
-            trail.erase(trail.begin());
-        }
-    }
-
-    bool isCloseToSun(sf::Vector2f sunPosition, float threshold) {
-        float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
-            std::pow(shape.getPosition().y - sunPosition.y, 2));
-        return distance < threshold;
-    }
-};
-
-b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
-    b2Vec2 direction = position - sunPosition;
-    float distance = direction.Length();
-
-    if (distance == 0) {
-        return b2Vec2(0, 0);
-    }
-
-    direction.Normalize();
-    float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
-
-    b2Vec2 perpendicular(-direction.y, direction.x);
-    perpendicular.Normalize();
-    perpendicular *= velocityMagnitude;
-
-    return perpendicular;
-}
-
-void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);
-    b2Vec2 direction = sunPos - planet.body->GetPosition();
-    float distance = direction.Length();
-
-    if (distance > SUN_RADIUS) {
-        direction.Normalize();
-        float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
-        b2Vec2 force = direction;
-        force *= forceMagnitude;
-        planet.body->ApplyForceToCenter(force, true);
-    }
-
-    for (const auto& otherPlanet : planets) {
-        if (&otherPlanet == &planet) continue;
-
-        b2Vec2 otherDirection = otherPlanet.body->GetPosition() - planet.body->GetPosition();
-        float otherDistance = otherDirection.Length();
-        if (otherDistance > 0) {
-            otherDirection.Normalize();
-            float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
-            b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;
-            planet.body->ApplyForceToCenter(forceToPlanet, true);
-        }
-    }
-}
-
-std::vector<Planet> planets;
-
-int main() {
-    sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
-
-    b2Vec2 gravity(0.0f, 0.0f);
-    world = new b2World(gravity);
-
-    sf::CircleShape sun(SUN_RADIUS);
-    sun.setFillColor(sf::Color::Yellow);
-    sun.setPosition(400 - SUN_RADIUS, 300 - SUN_RADIUS);
-
-    while (window.isOpen()) {
-        sf::Event event;
-        while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed) {
-                window.close();
-            }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
-                float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
-                
-                if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(20, mousePos.x, mousePos.y, world);  
-                    b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);
-                    planets.push_back(newPlanet);
-                }
-            }
-        }
-
-        world->Step(1.0f / 60.0f, 6, 2);
-
-        window.clear();
-        window.draw(sun);
-
-        for (auto it = planets.begin(); it != planets.end();) {
-            applyGravity(*it, planets);
-            it->update();
-
-            if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world->DestroyBody(it->body); 
-                it = planets.erase(it); 
-            }
-            else {
-                window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);
-                ++it;
-            }
-        }
-
-        window.display();
-    }
-
-    delete world;
-    return 0;
-}
-#include <SFML/Graphics.hpp>
-#include <Box2D/Box2D.h>
-#include <vector>
-#include <cmath>
-
-b2World* world;
-
-const float G = 0.0001f;
-const float SUN_MASS = 10000.0f;
-const float PLANET_MASS = 10.0f;
-const float SUN_RADIUS = 50.0f;
-
-class Planet {
-public:
-    sf::CircleShape shape;
-    b2Body* body;
-    std::vector<sf::Vertex> trail;
-
-    Planet(float radius , float x, float y, b2World* world) {
-        radius = 10.0f;
-        shape.setRadius(radius);  
-        shape.setFillColor(sf::Color::Green);
-        shape.setPosition(x, y);
-
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(x, y);
-
-        body = world->CreateBody(&bodyDef);
-
-        b2CircleShape circleShape;
-        circleShape.m_radius = radius;
-
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &circleShape;
-        fixtureDef.density = PLANET_MASS;
-        fixtureDef.friction = 0.3f;
-
-        body->CreateFixture(&fixtureDef);
-    }
-
-    void update() {
-        shape.setPosition(body->GetPosition().x, body->GetPosition().y);
-        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
-        if (trail.size() > 200) {
-            trail.erase(trail.begin());
-        }
-    }
-
-    bool isCloseToSun(sf::Vector2f sunPosition, float threshold) {
-        float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
-            std::pow(shape.getPosition().y - sunPosition.y, 2));
-        return distance < threshold;
-    }
-};
-
-b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
-    b2Vec2 direction = position - sunPosition;
-    float distance = direction.Length();
-
-    if (distance == 0) {
-        return b2Vec2(0, 0);
-    }
-
-    direction.Normalize();
-    float velocityMagnitude = std::sqrt(G * SUN_MASS / distance);
-
-    b2Vec2 perpendicular(-direction.y, direction.x);
-    perpendicular.Normalize();
-    perpendicular *= velocityMagnitude;
-
-    return perpendicular;
-}
-
-void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);
-    b2Vec2 direction = sunPos - planet.body->GetPosition();
-    float distance = direction.Length();
-
-    if (distance > SUN_RADIUS) {
-        direction.Normalize();
-        float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
-        b2Vec2 force = direction;
-        force *= forceMagnitude;
-        planet.body->ApplyForceToCenter(force, true);
-    }
-
-    for (const auto& otherPlanet : planets) {
-        if (&otherPlanet == &planet) continue;
-
-        b2Vec2 otherDirection = otherPlanet.body->GetPosition() - planet.body->GetPosition();
-        float otherDistance = otherDirection.Length();
-        if (otherDistance > 0) {
-            otherDirection.Normalize();
-            float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
-            b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;
-            planet.body->ApplyForceToCenter(forceToPlanet, true);
-        }
-    }
-}
-
-std::vector<Planet> planets;
-
-int main() {
-    sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
-
-    b2Vec2 gravity(0.0f, 0.0f);
-    world = new b2World(gravity);
-
-    sf::CircleShape sun(SUN_RADIUS);
-    sun.setFillColor(sf::Color::Yellow);
-    sun.setPosition(400 - SUN_RADIUS, 300 - SUN_RADIUS);
-
-    while (window.isOpen()) {
-        sf::Event event;
-        while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed) {
-                window.close();
-            }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
-                float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
-                
-                if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(20, mousePos.x, mousePos.y, world);  
-                    b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);
-                    planets.push_back(newPlanet);
-                }
-            }
-        }
-
-        world->Step(1.0f / 60.0f, 6, 2);
-
-        window.clear();
-        window.draw(sun);
-
-        for (auto it = planets.begin(); it != planets.end();) {
-            applyGravity(*it, planets);
-            it->update();
-
-            if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world->DestroyBody(it->body); 
-                it = planets.erase(it); 
-            }
-            else {
-                window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);
-                ++it;
-            }
-        }
-
-        window.display();
-    }
-
-    delete world;
     return 0;
 }
