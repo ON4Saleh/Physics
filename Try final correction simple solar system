@@ -1,0 +1,123 @@
+#include <SFML/Graphics.hpp>
+#include <Box2D/Box2D.h>
+#include <vector>
+#include <cmath>
+#include <iostream>
+
+b2World* world;
+
+const float G = 10.0f;
+
+float CalculateDistance(b2Vec2 Center1, b2Vec2 Center2) {
+	return std::sqrt(std::pow(Center2.x - Center1.x, 2) + std::pow(Center2.y - Center1.y, 2));
+}
+
+float CalculateGravitionalForce(float m1, float m2, float distance) {
+	if (distance == 0) return 0;
+	return G * m1 * m2 / std::pow(distance, 2);
+}
+
+
+int main() {
+	sf::RenderWindow window(sf::VideoMode(800, 600), "Simple Solar System ");
+	b2Vec2 gravity(0.0f, 0.0f);
+	b2World world(gravity);
+
+	b2BodyDef sundef;
+	sundef.type = b2_staticBody;
+	sundef.position.Set(0.0f, 0.0f); //Modify to Center of SFML
+	b2Body* sunbody = world.CreateBody(&sundef);
+
+	b2CircleShape sunCircle;
+	sunCircle.m_radius = 5.0f;
+	b2FixtureDef sunFixtureDef;
+	sunFixtureDef.shape = &sunCircle;
+	sunFixtureDef.density = 100.0f;  // كتلة كبيرة جدًا (رمزية)
+	sunbody->CreateFixture(&sunFixtureDef);
+
+	b2BodyDef plantdef;
+	plantdef.type = b2_dynamicBody;
+	plantdef.position.Set(10.0, 0.0f);
+	b2Body* plantbody = world.CreateBody(&plantdef);
+
+	b2CircleShape plantCircle;
+	plantCircle.m_radius = 1.0f;
+	b2FixtureDef plantFixtureDef;
+	plantFixtureDef.shape = &plantCircle;
+	plantFixtureDef.density = 10.0f;
+	plantbody->CreateFixture(&plantFixtureDef);
+
+	float timeStep = 1.0f / 60.0f; ///????????????????
+	int32 velocityIterations = 6;
+	int32 positionIterations = 2;
+	while (window.isOpen()) {
+		sf::Event event;
+		while (window.pollEvent(event)) {
+			if (event.type == sf::Event::Closed) {
+				window.close();
+			}
+		}
+
+		//update world
+		world.Step(timeStep, velocityIterations, positionIterations);
+		b2Vec2 sunPos = sunbody->GetPosition();
+		b2Vec2 plantpos = plantbody->GetPosition();
+
+		// Calculate the distance between the sun and the plant
+		float distance = CalculateDistance(sunPos, plantpos);
+
+		float force = CalculateGravitionalForce(sunbody->GetMass(), plantbody->GetMass(), distance);
+
+		// force direction
+		b2Vec2 direction = sunPos - plantpos;
+		if (distance > 0.0f) {
+			direction.Normalize(); 
+		}
+		else {
+			direction.SetZero(); 
+		}
+
+		// apply force on plant
+		b2Vec2 forceOnPLant = force * direction;
+		plantbody->ApplyForceToCenter(forceOnPLant, true);
+
+		if (distance <= (sunCircle.m_radius + plantCircle.m_radius)) {
+			std::cout << "Collision detected!" << std::endl;
+			float newMass = sunbody->GetMass() + plantbody->GetMass();
+			
+			// Create new sun body with combined mass
+			b2BodyDef newSunDef;
+			newSunDef.type = b2_staticBody;
+			newSunDef.position = sunbody->GetPosition();
+			b2Body* newSunBody = world.CreateBody(&newSunDef);
+
+			b2CircleShape newSunShape;
+			newSunShape.m_radius = sunCircle.m_radius + plantCircle.m_radius;  // Adjust radius after collision
+			b2FixtureDef newSunFixtureDef;
+			newSunFixtureDef.shape = &newSunShape;
+			newSunFixtureDef.density = newMass;
+			newSunBody->CreateFixture(&newSunFixtureDef);
+
+			world.DestroyBody(sunbody);  // Destroy old sun
+			world.DestroyBody(plantbody);  // Destroy plant
+			break; // End the loop
+		}
+		window.clear();
+		//Sun
+		sf::CircleShape sunShape(sunCircle.m_radius * 10.0f);
+		sunShape.setFillColor(sf::Color::Yellow);
+		sunShape.setPosition(sunPos.x * 10.0f + 400, sunPos.y * 10.0f + 300);  // تحويل الإحداثيات وتوسيعها
+		window.draw(sunShape);
+		// plant
+		sf::CircleShape plantShape(plantCircle.m_radius * 10.0f); 
+		plantShape.setFillColor(sf::Color::Blue);
+		plantShape.setPosition(plantpos.x * 10.0f + 400, plantpos.y * 10.0f + 300);  // تحويل الإحداثيات وتوسيعها
+		window.draw(plantShape);
+
+		window.display();
+		// print plant position
+		std::cout << "Small Body Position: (" << plantbody->GetPosition().x << ", " << plantbody->GetPosition().y << ")\n";
+	}
+
+	return 0;
+}
