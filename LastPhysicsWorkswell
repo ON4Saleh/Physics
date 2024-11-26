@@ -3,22 +3,26 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <memory>
 
 // تعريف الثوابت
-const float G = 0.0001f;   // ثابت الجذب العام
+const float G = 1.0;          // ثابت الجذب العام
 const float SUN_MASS = 10000.0f;  // كتلة الشمس
 const float SUN_RADIUS = 50.0f;   // نصف قطر الشمس
+const float MAX_TRAIL_SIZE = 300; // الحد الأقصى لطول المسار
 
 // تعريف الكوكب
 class Planet {
 public:
-    sf::CircleShape shape;  // شكل الكوكب
-    b2Body* body;          // جسم Box2D
+    sf::CircleShape shape;          // شكل الكوكب
+    b2Body* body;                   // جسم Box2D
     std::vector<sf::Vertex> trail;  // مسار الكوكب
+    sf::CircleShape orbit;          // مدار الكوكب
 
     Planet(float radius, float x, float y, b2World* world) {
         shape.setRadius(radius);
         shape.setFillColor(sf::Color::Green);
+        shape.setOrigin(radius, radius);  // تحديد نقطة الأصل في مركز الكوكب
         shape.setPosition(x, y);
 
         // إعداد جسم Box2D
@@ -37,24 +41,36 @@ public:
         fixtureDef.friction = 0.3f;
 
         body->CreateFixture(&fixtureDef);
+
+        // رسم المدار (دائرة حول الشمس)
+        orbit.setRadius(std::sqrt(std::pow(x - 400, 2) + std::pow(y - 300, 2)));
+        orbit.setFillColor(sf::Color::Transparent);
+        orbit.setOutlineColor(sf::Color(255, 255, 255, 50));  // لون شفاف
+        orbit.setOutlineThickness(1);
+        orbit.setOrigin(orbit.getRadius(), orbit.getRadius());
+        orbit.setPosition(400, 300);
     }
 
     void update() {
         shape.setPosition(body->GetPosition().x, body->GetPosition().y);
         trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
-        if (trail.size() > 200) {
-            trail.erase(trail.begin());  // تقليم المسار
+        if (trail.size() > MAX_TRAIL_SIZE) {
+            trail.erase(trail.begin());
         }
     }
 
-    bool isCloseToSun(sf::Vector2f sunPosition, float threshold) {
+    bool isCloseToSun(const sf::Vector2f& sunPosition, float threshold) const {
         float distance = std::sqrt(std::pow(shape.getPosition().x - sunPosition.x, 2) +
             std::pow(shape.getPosition().y - sunPosition.y, 2));
         return distance < threshold;
     }
+
+    void drawOrbit(sf::RenderWindow& window) const {
+        window.draw(orbit);
+    }
 };
 
-// حساب السرعة الأولية للكوكب بحيث تكون عمودية على القوة الجاذبية
+// حساب السرعة الأولية للكوكب
 b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
     b2Vec2 direction = position - sunPosition;
     float distance = direction.Length();
@@ -75,37 +91,24 @@ b2Vec2 calculateInitialVelocity(b2Vec2 position, b2Vec2 sunPosition) {
 }
 
 // تطبيق الجاذبية بين الشمس والكواكب
-void applyGravity(Planet& planet, const std::vector<Planet>& planets) {
-    b2Vec2 sunPos(400, 300);  // موقع الشمس
+void applyGravity(Planet& planet, const sf::Vector2f& sunPosition) {
+    b2Vec2 sunPos(sunPosition.x, sunPosition.y);
     b2Vec2 direction = sunPos - planet.body->GetPosition();
     float distance = direction.Length();
 
-    // التأكد من أن الكوكب ليس في الشمس
     if (distance > SUN_RADIUS) {
         direction.Normalize();
+        // حساب القوة باستخدام قانون الجذب العام
+        // حساب القوة باستخدام قانون الجذب العام
         float forceMagnitude = (G * planet.body->GetMass() * SUN_MASS) / (distance * distance);
-        b2Vec2 force = direction;
-        force *= forceMagnitude;  // ضرب المتجه في القوة
-        planet.body->ApplyForceToCenter(force, true);
-    }
+        direction *= forceMagnitude;  // ضرب المتجه في القوة
+        planet.body->ApplyForceToCenter(direction, true);  // تطبيق القوة على جسم الكوكب
 
-    // تطبيق الجاذبية بين الكواكب
-    for (const auto& otherPlanet : planets) {
-        if (&otherPlanet == &planet) continue;
 
-        b2Vec2 otherDirection = otherPlanet.body->GetPosition() - planet.body->GetPosition();
-        float otherDistance = otherDirection.Length();
-        if (otherDistance > 0) {
-            otherDirection.Normalize();
-            float otherForceMagnitude = (G * planet.body->GetMass() * otherPlanet.body->GetMass()) / (otherDistance * otherDistance);
-            b2Vec2 forceToPlanet = otherDirection;
-            forceToPlanet *= otherForceMagnitude;  // ضرب المتجه في القوة الجاذبية
-            planet.body->ApplyForceToCenter(forceToPlanet, true);
-        }
     }
 }
 
-std::vector<Planet> planets;
+std::vector<std::shared_ptr<Planet>> planets;
 
 int main() {
     sf::RenderWindow window(sf::VideoMode(800, 600), "Solar System Simulation");
@@ -115,7 +118,8 @@ int main() {
 
     sf::CircleShape sun(SUN_RADIUS);
     sun.setFillColor(sf::Color::Yellow);
-    sun.setPosition(400 - SUN_RADIUS, 300 - SUN_RADIUS);
+    sun.setOrigin(SUN_RADIUS, SUN_RADIUS);
+    sun.setPosition(400, 300);
 
     while (window.isOpen()) {
         sf::Event event;
@@ -127,34 +131,32 @@ int main() {
                 sf::Vector2i mousePos = sf::Mouse::getPosition(window);
                 float distanceToSun = std::sqrt(std::pow(mousePos.x - 400, 2) + std::pow(mousePos.y - 300, 2));
 
-                // التأكد من أن الكوكب بعيد عن الشمس
                 if (distanceToSun > SUN_RADIUS) {
-                    Planet newPlanet(10, mousePos.x, mousePos.y, &world);  // إنشاء كوكب جديد
-                    b2Vec2 velocity = calculateInitialVelocity(newPlanet.body->GetPosition(), b2Vec2(400, 300));
-                    newPlanet.body->SetLinearVelocity(velocity);  // تعيين السرعة الأولية
+                    auto newPlanet = std::make_shared<Planet>(10, mousePos.x, mousePos.y, &world);
+                    b2Vec2 velocity = calculateInitialVelocity(newPlanet->body->GetPosition(), b2Vec2(400, 300));
+                    newPlanet->body->SetLinearVelocity(velocity);
                     planets.push_back(newPlanet);
                 }
             }
         }
 
-        // تحديث العالم
         world.Step(1.0f / 60.0f, 6, 2);
 
         window.clear();
         window.draw(sun);
 
-        // تحديث الكواكب وتطبيق الجاذبية
         for (auto it = planets.begin(); it != planets.end();) {
-            applyGravity(*it, planets);
-            it->update();
+            applyGravity(**it, sf::Vector2f(400, 300));
+            (*it)->update();
 
-            if (it->isCloseToSun(sun.getPosition(), SUN_RADIUS + 10)) {
-                world.DestroyBody(it->body);
-                it = planets.erase(it);  // حذف الكوكب إذا اقترب من الشمس
+            if ((*it)->isCloseToSun(sf::Vector2f(400, 300), SUN_RADIUS + 10)) {
+                world.DestroyBody((*it)->body);
+                it = planets.erase(it);
             }
             else {
-                window.draw(it->shape);
-                window.draw(&it->trail[0], it->trail.size(), sf::LinesStrip);  // رسم المسار
+                (*it)->drawOrbit(window);
+                window.draw((*it)->shape);
+                window.draw(&(*it)->trail[0], (*it)->trail.size(), sf::LinesStrip);
                 ++it;
             }
         }
