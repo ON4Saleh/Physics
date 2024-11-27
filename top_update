@@ -3,7 +3,7 @@
 #include <vector>
 #include <iostream>
 
-const float G = 1.0;            
+const float G = 10.0;            
 float SUN_MASS = 10000.0f;      
 const float SUN_RADIUS = 50.0f; 
 const float MAX_TRAIL_SIZE = 300; 
@@ -12,13 +12,13 @@ class Planet {
 public:
     sf::CircleShape shape;          
     b2Body* body;                   
-    std::vector<sf::Vertex> trail;  
-    sf::CircleShape orbit;          
+    std::vector<sf::CircleShape> trail;  
+    sf::CircleShape orbit;
     float mass;                     
 
     Planet(float radius, float x, float y, b2World* world) {
         shape.setRadius(radius);
-        shape.setFillColor(sf::Color::Green);
+        shape.setFillColor(sf::Color::Cyan);
         shape.setOrigin(radius, radius);  
         shape.setPosition(x, y);
 
@@ -50,9 +50,15 @@ public:
 
     void update() {
         shape.setPosition(body->GetPosition().x, body->GetPosition().y);
-        trail.push_back(sf::Vertex(shape.getPosition(), sf::Color::Green));
+        sf::CircleShape trailDot(2); 
+        trailDot.setFillColor(sf::Color::Cyan);
+        trailDot.setOrigin(2, 2); 
+        trailDot.setPosition(shape.getPosition());
+
+
+        trail.push_back(trailDot);
         if (trail.size() > MAX_TRAIL_SIZE) {
-            trail.erase(trail.begin());
+            trail.erase(trail.begin()); 
         }
     }
 
@@ -183,7 +189,10 @@ int main() {
             else {
                 (*it)->drawOrbit(window);
                 window.draw((*it)->shape);
-                window.draw(&(*it)->trail[0], (*it)->trail.size(), sf::LinesStrip);
+
+                for (const auto& trailDot : (*it)->trail) {
+                    window.draw(trailDot);
+                }
                 ++it;
             }
         }
